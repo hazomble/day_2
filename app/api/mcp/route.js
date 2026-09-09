@@ -41,13 +41,20 @@ function safeUser(user, profile = {}) {
 
 function hasValidToken(request) {
   const expected = process.env.MCP_API_TOKEN;
-  const received = request.headers.get("authorization");
+  const authorizationHeader = request.headers.get("authorization");
   const prefix = "Bearer ";
+  // Claude Chat's custom-connector form only accepts an endpoint URL. It does
+  // not provide a field for arbitrary Bearer headers, so a user can also put a
+  // high-entropy MCP key in the private connector URL. Keep header support for
+  // other MCP clients (Claude Desktop, inspectors, scripts).
+  const received = authorizationHeader?.startsWith(prefix)
+    ? authorizationHeader.slice(prefix.length)
+    : new URL(request.url).searchParams.get("mcp_key");
 
-  if (!expected || !received?.startsWith(prefix)) return false;
+  if (!expected || !received) return false;
 
   const expectedBuffer = Buffer.from(expected);
-  const receivedBuffer = Buffer.from(received.slice(prefix.length));
+  const receivedBuffer = Buffer.from(received);
   return expectedBuffer.length === receivedBuffer.length && timingSafeEqual(expectedBuffer, receivedBuffer);
 }
 

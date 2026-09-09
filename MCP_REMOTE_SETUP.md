@@ -32,8 +32,22 @@ After saving the variables, redeploy Vercel. Test the endpoint only with a clien
 Authorization: Bearer YOUR_MCP_API_TOKEN
 ```
 
-## Claude Chat connection note
+## Connect from Claude Chat Free
 
-This endpoint is intentionally not public: it can create accounts and disable users. A Claude Chat custom connector must be able to authenticate to it. Claude's remote custom connector supports OAuth or an unauthenticated endpoint; a static bearer token is not a safe unauthenticated alternative.
+Claude Free supports one custom remote connector. In Claude Chat:
 
-For Claude Chat, the secure production follow-up is OAuth (or an identity-aware proxy) in front of `/api/mcp`. Never remove the token check to make the connector work. If using Claude Desktop / Claude Code locally, configure its MCP client to send the endpoint and bearer token, or use the existing local filesystem MCP for source-code access.
+1. Open **Customize → Connectors → + → Add custom connector**.
+2. Set a name such as `Madarek Admin`.
+3. Use this exact URL, replacing the two placeholders:
+
+```text
+https://YOUR-VERCEL-DOMAIN/api/mcp?mcp_key=YOUR_MCP_API_TOKEN
+```
+
+4. Add the connector, then enable it for the conversation from the **+ → Connectors** menu.
+
+The `mcp_key` value is accepted only as a compatibility option for Claude Chat's URL-only custom-connector setup. Treat the complete URL as a password: do not share it, put it in screenshots, commit it to GitHub, or paste it in a public chat. The endpoint still accepts the safer `Authorization: Bearer ...` header for tools that support custom headers.
+
+## Production upgrade
+
+For multiple people or a real platform, replace the URL key with OAuth or an identity-aware proxy. Never remove authentication entirely: these MCP tools can create accounts, change access, and publish courses.
