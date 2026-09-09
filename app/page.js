@@ -1,5 +1,5 @@
-import LearningDashboard from "./learning-dashboard";
+import AuthGate from "./auth-gate";
 
 export default function Home() {
-  return <LearningDashboard />;
+  return <AuthGate />;
 }

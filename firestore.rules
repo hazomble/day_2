@@ -1,0 +1,111 @@
+rules_version = '2';
+
+// Firebase Spark-plan rules for the three task accounts.
+// Production projects should replace the email checks with Custom Claims.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function profileRole(role) {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+    }
+    function admin() {
+      return signedIn() && (request.auth.token.admin == true ||
+        request.auth.token.email == "mag65@gmail.com" || profileRole("admin"));
+    }
+    function instructor() {
+      return signedIn() && (request.auth.token.instructor == true ||
+        request.auth.token.email == "ah555@gmail.com" || profileRole("instructor"));
+    }
+    function student() {
+      return signedIn() && (request.auth.token.student == true ||
+        request.auth.token.email == "al12003@gmail.com" || profileRole("student"));
+    }
+    function active() {
+      return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.disabled != true;
+    }
+    function ownsCourse(courseId) {
+      return instructor() &&
+        get(/databases/$(database)/documents/courses/$(courseId)).data.instructorId == request.auth.uid;
+    }
+    function published(courseId) {
+      return get(/databases/$(database)/documents/courses/$(courseId)).data.status == "published";
+    }
+    function enrolled(courseId) {
+      return exists(/databases/$(database)/documents/enrollments/$(request.auth.uid + "_" + courseId));
+    }
+    function correctDemoRole(role) {
+      return (admin() && role == "admin") ||
+        (instructor() && role == "instructor") ||
+        (student() && role == "student");
+    }
+
+    match /users/{uid} {
+      allow get: if active() && (admin() || request.auth.uid == uid);
+      allow list: if active() && admin();
+      // Each fixed demo account can create only its own profile and own role.
+      allow create: if admin() || (signedIn() && request.auth.uid == uid &&
+        request.resource.data.uid == uid && correctDemoRole(request.resource.data.role)));
+      allow update: if active() && ((admin()) ||
+        (request.auth.uid == uid && request.resource.data.role == resource.data.role &&
+          request.resource.data.disabled == resource.data.disabled &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["displayName", "photoURL", "updatedAt"])));
+      allow delete: if admin();
+    }
+
+    match /courses/{courseId} {
+      allow get, list: if active() && (resource.data.status == "published" || admin() ||
+        (instructor() && resource.data.instructorId == request.auth.uid));
+      allow create: if active() && (admin() || (instructor() &&
+        request.resource.data.instructorId == request.auth.uid));
+      allow update, delete: if active() && (admin() || (instructor() &&
+        resource.data.instructorId == request.auth.uid &&
+        request.resource.data.instructorId == resource.data.instructorId));
+
+      match /lectures/{lectureId} {
+        allow get, list: if active() && (admin() || ownsCourse(courseId) ||
+          (published(courseId) && (resource.data.isPreview == true || enrolled(courseId))));
+        allow create, update, delete: if active() && (admin() || ownsCourse(courseId));
+      }
+
+      // Client-visible quiz documents deliberately omit correct answers.
+      match /quizzes/{quizId} {
+        allow get, list: if active() && (admin() || ownsCourse(courseId) ||
+          (resource.data.status == "published" && enrolled(courseId)));
+        allow create, update, delete: if active() && (admin() || ownsCourse(courseId));
+      }
+    }
+
+    match /enrollments/{enrollmentId} {
+      allow get, list: if active() && (admin() || resource.data.studentId == request.auth.uid ||
+        ownsCourse(resource.data.courseId));
+      allow create: if active() && student() && enrollmentId == request.auth.uid + "_" +
+        request.resource.data.courseId && request.resource.data.studentId == request.auth.uid &&
+        request.resource.data.progressPercent == 0 && request.resource.data.status == "active" &&
+        published(request.resource.data.courseId);
+      allow update: if active() && (admin() || (student() && resource.data.studentId == request.auth.uid &&
+        request.resource.data.studentId == request.auth.uid &&
+        request.resource.data.courseId == resource.data.courseId &&
+        request.resource.data.progressPercent >= resource.data.progressPercent &&
+        request.resource.data.progressPercent <= 100));
+      allow delete: if admin();
+    }
+
+    match /quiz_submissions/{submissionId} {
+      allow get, list: if active() && (admin() || resource.data.studentId == request.auth.uid ||
+        ownsCourse(resource.data.courseId));
+      allow create: if active() && student() && enrolled(request.resource.data.courseId) &&
+        submissionId == request.auth.uid + "_" + request.resource.data.quizId &&
+        request.resource.data.studentId == request.auth.uid && request.resource.data.status == "submitted" &&
+        !request.resource.data.keys().hasAny(["score", "maxScore", "percentage"]);
+      allow update, delete: if admin();
+    }
+
+    match /audit_logs/{logId} {
+      allow read: if active() && admin();
+      allow write: if false;
+    }
+  }
+}
