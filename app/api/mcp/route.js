@@ -241,12 +241,23 @@ export async function POST(request) {
   return handleMcp(request);
 }
 
-export async function GET(request) {
-  return handleMcp(request);
+// This endpoint is stateless and request/response based. In a Vercel Serverless
+// function, keeping a GET SSE stream open can time out during connector
+// discovery, so only POST is used for MCP messages.
+function methodNotAllowed() {
+  return Response.json({
+    jsonrpc: "2.0",
+    error: { code: -32000, message: "Method not allowed. Use POST /api/mcp." },
+    id: null,
+  }, { status: 405, headers: jsonHeaders });
 }
 
-export async function DELETE(request) {
-  return handleMcp(request);
+export function GET() {
+  return methodNotAllowed();
+}
+
+export function DELETE() {
+  return methodNotAllowed();
 }
 
 export function OPTIONS() {
