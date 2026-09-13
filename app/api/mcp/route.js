@@ -1,9 +1,9 @@
-import { timingSafeEqual } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { FieldValue } from "firebase-admin/firestore";
 import { z } from "zod";
 import { getFirebaseAdmin } from "../../../lib/firebase-admin";
+import { hasMcpAccess, oauthUrls } from "../../../lib/mcp-oauth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,25 +37,6 @@ function safeUser(user, profile = {}) {
     role: profile.role || user.customClaims?.role || "student",
     disabled: user.disabled || profile.disabled === true,
   };
-}
-
-function hasValidToken(request) {
-  const expected = process.env.MCP_API_TOKEN;
-  const authorizationHeader = request.headers.get("authorization");
-  const prefix = "Bearer ";
-  // Claude Chat's custom-connector form only accepts an endpoint URL. It does
-  // not provide a field for arbitrary Bearer headers, so a user can also put a
-  // high-entropy MCP key in the private connector URL. Keep header support for
-  // other MCP clients (Claude Desktop, inspectors, scripts).
-  const received = authorizationHeader?.startsWith(prefix)
-    ? authorizationHeader.slice(prefix.length)
-    : new URL(request.url).searchParams.get("mcp_key");
-
-  if (!expected || !received) return false;
-
-  const expectedBuffer = Buffer.from(expected);
-  const receivedBuffer = Buffer.from(received);
-  return expectedBuffer.length === receivedBuffer.length && timingSafeEqual(expectedBuffer, receivedBuffer);
 }
 
 async function writeAuditLog(db, action, details) {
@@ -215,8 +196,15 @@ function withCors(response) {
 }
 
 async function handleMcp(request) {
-  if (!hasValidToken(request)) {
-    return Response.json({ error: "Unauthorized MCP request." }, { status: 401, headers: jsonHeaders });
+  if (!(await hasMcpAccess(request))) {
+    const { resourceMetadata } = oauthUrls(request);
+    return Response.json({ error: "OAuth authorization is required." }, {
+      status: 401,
+      headers: {
+        ...jsonHeaders,
+        "WWW-Authenticate": `Bearer resource_metadata="${resourceMetadata}", scope="madarek.admin"`,
+      },
+    });
   }
 
   const server = createServer();
